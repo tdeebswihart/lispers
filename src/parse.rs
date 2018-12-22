@@ -1,6 +1,7 @@
+use crate::tokenize::Token;
 use std::io::{self, Write};
 use std::str::FromStr;
-/// Allowable expressions for Lispy Calculator
+/// Allowable expressions for Lispy ulator
 /// variable reference -> variable name, whose value is the var's value
 /// constant literal   -> 12, -3.45e+6, etc
 /// conditional        -> (if test consequence alternative)
@@ -8,47 +9,37 @@ use std::str::FromStr;
 /// procedure call     -> (prog arg...)
 
 #[derive(Debug)]
-enum CalcAtom {
+enum Lit {
     Integer(i64),
     Float(f32),
-    Symbol(String),
+    Str(String),
+    Ident(String),
 }
 
-impl ToString for CalcAtom {
+impl ToString for Lit {
     fn to_string(&self) -> String {
         match self {
-            CalcAtom::Integer(i) => i.to_string(),
-            CalcAtom::Float(f) => f.to_string(),
-            CalcAtom::Symbol(s) => s.clone(),
+            Lit::Integer(i) => i.to_string(),
+            Lit::Float(f) => f.to_string(),
+            Lit::Ident(s) => s.clone(),
+            Lit::Str(s) => s.clone(),
         }
     }
 }
 
-impl FromStr for CalcAtom {
-    type Err = ParseError;
-    fn from_str(token: &str) -> Result<CalcAtom, Self::Err> {
-        use self::CalcAtom::*;
-        Ok(match token.parse::<i64>() {
-            Ok(i) => Integer(i),
-            Err(_) => match token.parse::<f32>() {
-                Ok(f) => Float(f),
-                Err(_) => Symbol(token.to_string()),
-            },
-        })
-    }
-}
-
 #[derive(Debug)]
-enum CalcAst {
-    Atom(CalcAtom),
-    List(Vec<CalcAst>),
+enum Ast {
+    Literal(Lit),
+    List(Vec<Ast>),
 }
 
-impl CalcAst {
+// Exprs are lists of other exprs...
+
+impl Ast {
     fn pprint(&self) {
         match self {
-            CalcAst::Atom(a) => print!("{:?}", a),
-            CalcAst::List(asts) => {
+            Ast::Literal(a) => print!("{:?}", a),
+            Ast::List(asts) => {
                 print!("(");
                 for ast in asts.iter() {
                     ast.pprint();
@@ -64,4 +55,10 @@ impl CalcAst {
 enum ParseError {
     SyntaxError(String),
     UnexpectedEOF,
+}
+
+struct Parser {}
+
+fn parse(tokens: &[Token]) -> Result<Ast, ParseError> {
+    Err(ParseError::UnexpectedEOF)
 }

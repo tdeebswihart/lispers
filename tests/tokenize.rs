@@ -1,30 +1,5 @@
-extern crate lispers;
-
+pub mod common;
 use lispers::tokenize::{Loc, Token, TokenizationError, Tokenizer};
-
-macro_rules! token {
-    ($id:ident, $line:expr, $col:expr) => {
-        Token::$id(Loc::new($line, $col))
-    };
-}
-
-macro_rules! ident {
-    ($v:expr, $line:expr, $col:expr) => {
-        Token::Ident($v.to_string(), Loc::new($line, $col))
-    };
-}
-
-macro_rules! lit {
-    ($v:expr, $line:expr, $col:expr) => {
-        Token::Literal($v.to_string(), Loc::new($line, $col))
-    };
-}
-
-macro_rules! s {
-    ($v:expr) => {
-        $v.to_string()
-    };
-}
 
 #[test]
 fn test_basic_consume() {
