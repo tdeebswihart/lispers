@@ -10,7 +10,7 @@ fn main() {
     }
     let program = env::args().nth(1).unwrap();
     println!("Parsing {}", program);
-    let toks = match Tokenizer::parse(&program) {
+    let toks = match Tokenizer::new().tokenize(&program) {
         Ok(a) => a,
         Err(e) => panic!(e),
     };

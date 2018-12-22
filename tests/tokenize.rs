@@ -27,15 +27,15 @@ macro_rules! s {
 }
 
 #[test]
-fn test_basic_parse() {
-    let source = "(+ 1 2 )";
-    let toks = Tokenizer::parse(source).unwrap();
+fn test_basic_consume() {
+    let source = "(+ 1 12 )";
+    let toks = Tokenizer::new().tokenize(source).unwrap();
     let goal = [
         token!(SexprBegin, 0, 0),
         ident!("+", 0, 1),
         lit!("1", 0, 3),
-        lit!("2", 0, 5),
-        token!(SexprEnd, 0, 7),
+        lit!("12", 0, 5),
+        token!(SexprEnd, 0, 8),
     ];
     assert_eq!(goal.len(), toks.len());
     for (correct, candidate) in goal.iter().zip(toks.iter()) {
@@ -44,9 +44,9 @@ fn test_basic_parse() {
 }
 
 #[test]
-fn test_string_parse() {
+fn test_string_consume() {
     let source = "(+ 1 2 \"foo\")";
-    let toks = Tokenizer::parse(source).unwrap();
+    let toks = Tokenizer::new().tokenize(source).unwrap();
     let goal = [
         token!(SexprBegin, 0, 0),
         ident!("+", 0, 1),
@@ -54,6 +54,28 @@ fn test_string_parse() {
         lit!("2", 0, 5),
         lit!("\"foo\"", 0, 7),
         token!(SexprEnd, 0, 12),
+    ];
+    assert_eq!(goal.len(), toks.len());
+    for (correct, candidate) in goal.iter().zip(toks.iter()) {
+        assert_eq!(correct, candidate);
+    }
+}
+
+#[test]
+fn test_nested_consume() {
+    let source = "(+ 1 (* 3 4) \"foo\")";
+    let toks = Tokenizer::new().tokenize(source).unwrap();
+    let goal = [
+        token!(SexprBegin, 0, 0),
+        ident!("+", 0, 1),
+        lit!("1", 0, 3),
+        token!(SexprBegin, 0, 5),
+        ident!("*", 0, 6),
+        lit!("3", 0, 8),
+        lit!("4", 0, 10),
+        token!(SexprEnd, 0, 11),
+        lit!("\"foo\"", 0, 13),
+        token!(SexprEnd, 0, 18),
     ];
     assert_eq!(goal.len(), toks.len());
     for (correct, candidate) in goal.iter().zip(toks.iter()) {
