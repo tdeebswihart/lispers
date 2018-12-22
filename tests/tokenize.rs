@@ -1,6 +1,6 @@
 extern crate lispers;
 
-use lispers::tokenize::{Loc, Token, Tokenizer};
+use lispers::tokenize::{Loc, Token, TokenizationError, Tokenizer};
 
 macro_rules! token {
     ($id:ident, $line:expr, $col:expr) => {
@@ -80,5 +80,18 @@ fn test_nested_consume() {
     assert_eq!(goal.len(), toks.len());
     for (correct, candidate) in goal.iter().zip(toks.iter()) {
         assert_eq!(correct, candidate);
+    }
+}
+
+#[test]
+fn test_unexpected_char() {
+    let source = "(+ 1 (* 3 4)))";
+    let err = Tokenizer::new().tokenize(source).err().unwrap();
+    match err {
+        TokenizationError::UnexpectedChar(c, l) => {
+            assert_eq!(c, ')');
+            assert_eq!(l, Loc::new(0, 13));
+        }
+        _ => panic!("Wrong error type!"),
     }
 }
