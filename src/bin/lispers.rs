@@ -2,6 +2,7 @@ extern crate lispers;
 
 use std::{env, process};
 
+use lispers::parse::Parser;
 use lispers::tokenize::Tokenizer;
 fn main() {
     if env::args().len() < 2 {
@@ -13,5 +14,11 @@ fn main() {
         Ok(a) => a,
         Err(e) => panic!(e),
     };
-    println!("{:?}", toks);
+    let mut parser = Parser::new();
+    let ast = match parser.parse(toks.as_slice()) {
+        Ok(a) => a,
+        Err(e) => panic!("{}", e.to_string()),
+    };
+
+    println!("{}", ast.to_string());
 }

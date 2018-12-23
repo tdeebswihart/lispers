@@ -13,7 +13,7 @@ use std::str::FromStr;
 type Identifier = String;
 
 #[derive(Debug, Clone)]
-enum Atom {
+pub enum Atom {
     /// Literals
     Integer(i64),
     Float(f32),
@@ -42,7 +42,7 @@ type Binding = (Identifier, Expr);
 type Form = (Vec<Identifier>, Expr);
 
 #[derive(Debug, Clone)]
-enum Expr {
+pub enum Expr {
     Literal(Atom),
     // Let(Vec<Binding>, Vec<Expr>),
     // Should Let be a macro? (let [bindings] exprs) ->
@@ -50,7 +50,6 @@ enum Expr {
     // Do(Vec<Expr>),
     // TODO: Allow for multiple List(Bracket, Expr) entries
     Lambda(Vec<Expr>),
-    Params(Vec<Identifier>),
     Vector(Vec<Expr>),
     Call(Identifier, Vec<Expr>),
     // If I want there to be multiple forms, then Def should take
@@ -74,7 +73,6 @@ impl ToString for Expr {
                     .collect::<Vec<String>>()
                     .join(" ")
             ),
-            Params(idents) => format!("[{}]", idents.as_slice().join(" ")),
             Vector(exprs) => format!(
                 "[{}]",
                 exprs
@@ -106,17 +104,28 @@ impl ToString for Expr {
 }
 
 #[derive(Debug)]
-enum ParseError {
+pub enum ParseError {
     SyntaxError(String, Loc),
     UnexpectedToken(Token),
     UnexpectedEOF,
+}
+
+impl ToString for ParseError {
+    fn to_string(&self) -> String {
+        use self::ParseError::*;
+        match self {
+            SyntaxError(s, l) => format!("Syntax Error: {} @ {}", s, l.to_string()),
+            UnexpectedToken(tok) => format!("Unexpected token {:?}", tok),
+            UnexpectedEOF => format!("Unexpected EOF!"),
+        }
+    }
 }
 
 use self::Atom::*;
 use self::Expr::*;
 use self::ParseError::*;
 
-struct Parser {}
+pub struct Parser {}
 
 type ParseResult<I> = Result<(Option<Expr>, Option<Peekable<I>>), ParseError>;
 
@@ -128,11 +137,11 @@ macro_rules! both {
 }
 
 impl Parser {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Parser {}
     }
 
-    fn parse(&mut self, tokens: &[Token]) -> Result<Expr, ParseError> {
+    pub fn parse(&mut self, tokens: &[Token]) -> Result<Expr, ParseError> {
         use self::Expr::*;
         let mut exprs = vec![];
         let mut tokiter = tokens.into_iter().peekable();
@@ -191,7 +200,9 @@ impl Parser {
     {
         let mut exprs = vec![];
         while let Some(next) = tokiter.peek() {
-            if let Token::SexprEnd(l) = next {
+            if let Token::SexprEnd(_l) = next {
+                // Punch through
+                let _ = tokiter.next();
                 let l = exprs.len();
                 if l == 0 {
                     // unit
@@ -211,8 +222,8 @@ impl Parser {
                         },
                         // Lambda definition. (fn $params $expr)
                         "fn" => match exprs.as_slice() {
-                            [_, Params(is), ex] => {
-                                both!(Lambda(vec![Params(is.clone()), ex.clone()]), tokiter)
+                            [_, Vector(is), ex] => {
+                                both!(Lambda(vec![Vector(is.clone()), ex.clone()]), tokiter)
                             }
                             _ => Err(SyntaxError(
                                 format!("Invalid lambda (fn...) expression '{:?}'", exprs),
@@ -252,6 +263,8 @@ impl Parser {
         let mut exprs = vec![];
         while let Some(next) = tokiter.peek() {
             if let Token::BracketEnd(_) = next {
+                // Punch through
+                let _ = tokiter.next();
                 return both!(Vector(exprs), tokiter);
             } else {
                 if let (rs, Some(ti)) = self.consume(tokiter)? {
