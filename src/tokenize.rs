@@ -13,7 +13,13 @@ impl Loc {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+impl ToString for Loc {
+    fn to_string(&self) -> String {
+        format!("{}:{}", self.line, self.column)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
     SexprBegin(Loc),
     SexprEnd(Loc),
@@ -28,8 +34,8 @@ pub enum Token {
     QuoteBegin(Loc),
     QuoteEnd(Loc),
     // TODO: implement the following
-    VecBegin(Loc),
-    VecEnd(Loc),
+    BracketBegin(Loc),
+    BracketEnd(Loc),
     SetBegin(Loc),
     SetEnd(Loc),
     HashMapBegin(Loc),
@@ -257,6 +263,15 @@ impl Tokenizer {
                 // TODO:%s/T: can make a tree here if I want w w
                 self.sexpr_depth -= 1;
                 Ok(Some(SexprEnd(self.loc)))
+            }
+            '[' => {
+                self.bracket_depth += 1;
+                Ok(Some(BracketBegin(self.loc)))
+            }
+            ']' => {
+                // TODO:%s/T: can make a tree here if I want w w
+                self.bracket_depth -= 1;
+                Ok(Some(BracketEnd(self.loc)))
             }
             '"' => {
                 self.partial.push(chr);
