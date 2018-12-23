@@ -48,9 +48,10 @@ enum Expr {
     // Should Let be a macro? (let [bindings] exprs) ->
     // (do (def bind_ident1 bind_expr1))
     // Do(Vec<Expr>),
-    // TODO: Allow for multiple List(BracketExpr, Expr) entries
+    // TODO: Allow for multiple List(Bracket, Expr) entries
     Lambda(Vec<Expr>),
-    BracketExpr(Vec<Identifier>),
+    Params(Vec<Identifier>),
+    Vector(Vec<Expr>),
     Call(Identifier, Vec<Expr>),
     // If I want there to be multiple forms, then Def should take
     // pairs of (Vec<Binding>, Box<Expr>)
@@ -61,41 +62,46 @@ enum Expr {
     List(Vec<Expr>),
 }
 
-impl Expr {
-    fn pprint(&self) {
+impl ToString for Expr {
+    fn to_string(&self) -> String {
         match self {
-            Expr::Literal(a) => print!("{:?}", a),
-            Expr::Definition(ident, bndgs) => println!("(def {:?} {:?})", ident, bndgs),
-            Expr::Lambda(exprs) => {
-                print!("(fn ");
-                for expr in exprs.iter() {
-                    expr.pprint();
-                }
-                print!(")");
-            }
-            Expr::Call(i, exprs) => {
-                print!("(");
-                for expr in exprs.iter() {
-                    expr.pprint();
-                }
-                print!(")");
-            }
-            Expr::BracketExpr(idents) => {
-                print!("[");
-                for ident in idents.iter() {
-                    print!("{} ", ident);
-                }
-                print!("]");
-            }
-            Expr::List(exprs) => {
-                print!("(");
-                for expr in exprs.iter() {
-                    expr.pprint();
-                }
-                print!(")");
-            }
+            Literal(a) => a.to_string(),
+            Lambda(exprs) => format!(
+                "(fn {})",
+                exprs
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" ")
+            ),
+            Params(idents) => format!("[{}]", idents.as_slice().join(" ")),
+            Vector(exprs) => format!(
+                "[{}]",
+                exprs
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" ")
+            ),
+            Call(ident, exprs) => format!(
+                "({} {})",
+                ident,
+                exprs
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" ")
+            ),
+            Definition(ident, expr) => format!("(def {} {})", ident, expr.to_string()),
+            List(exprs) => format!(
+                "({})",
+                exprs
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" ")
+            ),
         }
-        io::stdout().flush().unwrap();
     }
 }
 
@@ -113,7 +119,13 @@ use self::ParseError::*;
 struct Parser {}
 
 type ParseResult<I> = Result<(Option<Expr>, Option<Peekable<I>>), ParseError>;
-type TokenIter<'a> = Peekable<Iterator<Item = &'a Token>>;
+
+// I'm lazy so use macros to simplify specifying return values
+macro_rules! both {
+    ($token:expr, $iter:ident) => {
+        Ok((Some($token), Some($iter)))
+    };
+}
 
 impl Parser {
     fn new() -> Self {
@@ -123,7 +135,7 @@ impl Parser {
     fn parse(&mut self, tokens: &[Token]) -> Result<Expr, ParseError> {
         use self::Expr::*;
         let mut exprs = vec![];
-        let mut tokiter = tokens.iter().peekable();
+        let mut tokiter = tokens.into_iter().peekable();
         loop {
             match self.consume(tokiter)? {
                 (rs, Some(ti)) => {
@@ -150,15 +162,19 @@ impl Parser {
         if let Some(token) = tokiter.next() {
             match token {
                 Token::SexprBegin(l) => self.consume_sexpr(tokiter, l),
-                // TODO
                 Token::SexprEnd(_l) => Err(UnexpectedToken(token.clone())),
-                // TODO
-                Token::Ident(s, _l) => Ok((Some(Literal(Ident(s.clone()))), Some(tokiter))),
-                // TODO
-                Token::Literal(s, _l) => Err(UnexpectedToken(token.clone())),
-                // TODO
-                Token::BracketBegin(_l) => Err(UnexpectedToken(token.clone())),
-                // TODO
+                Token::Ident(s, _l) => both!(Literal(Ident(s.clone())), tokiter),
+                Token::Literal(s, _l) => {
+                    let atom = match s.parse::<i64>() {
+                        Ok(i) => Integer(i),
+                        Err(_) => match s.parse::<f32>() {
+                            Ok(f) => Float(f),
+                            Err(_) => Str(s.clone()),
+                        },
+                    };
+                    both!(Literal(atom), tokiter)
+                }
+                Token::BracketBegin(l) => self.consume_bracket(tokiter, l),
                 Token::BracketEnd(_l) => Err(UnexpectedToken(token.clone())),
                 _ => Err(UnexpectedToken(token.clone())),
             }
@@ -173,53 +189,41 @@ impl Parser {
     where
         I: Iterator<Item = &'a Token>,
     {
-        let exprs = vec![];
+        let mut exprs = vec![];
         while let Some(next) = tokiter.peek() {
             if let Token::SexprEnd(l) = next {
-                // done with this x-expr
-                // TODO: ensure the Sexpr is well-formed and figure out its final type
-                // TODO: look for the following idents as the first token:
-                //       fn -> Expr::Lambda
-                //       def -> Expr::Definition
-                // The following should be errors:
-                // first == Literal
-                // Type-checking will later verify that the args are of the right type, etc.
-                // TODO: check what kind of expr this is based on the first ident
                 let l = exprs.len();
                 if l == 0 {
                     // unit
-                    return Ok((Some(Literal(Unit)), Some(tokiter)));
+                    return both!(Literal(Unit), tokiter);
                 }
                 return match exprs.first().unwrap() {
                     Expr::Literal(Atom::Ident(i)) => match i.as_str() {
                         "def" => match exprs.as_slice() {
-                            [_, Literal(Ident(i)), List(es)] => {
-                                Ok((Some(Definition(*i, Box::new(List(*es)))), Some(tokiter)))
-                            }
-                            [_, Literal(Ident(i)), Literal(l)] => {
-                                Ok((Some(Definition(*i, Box::new(Literal(*l)))), Some(tokiter)))
+                            // (def ident $expr)
+                            [_, Literal(Ident(i)), ex] => {
+                                both!(Definition(i.clone(), Box::new(ex.clone())), tokiter)
                             }
                             _ => Err(SyntaxError(
                                 format!("Invalid `def` expression '{:?}'", exprs),
                                 *start_loc,
                             )),
                         },
-                        // Lambda definition
+                        // Lambda definition. (fn $params $expr)
                         "fn" => match exprs.as_slice() {
-                            [_, BracketExpr(is), List(es)] => Ok((
-                                Some(Lambda(vec![BracketExpr(*is), List(*es)])),
-                                Some(tokiter),
-                            )),
+                            [_, Params(is), ex] => {
+                                both!(Lambda(vec![Params(is.clone()), ex.clone()]), tokiter)
+                            }
                             _ => Err(SyntaxError(
-                                format!("Invalid lambda `fn` expression '{:?}'", exprs),
+                                format!("Invalid lambda (fn...) expression '{:?}'", exprs),
                                 *start_loc,
                             )),
                         },
                         // An analysis pass will ensure that the identifier is in scope and that the args are correct
-                        _ => Ok((Some(Call(*i, exprs[1..].to_vec())), Some(tokiter))),
+                        _ => both!(Call(i.clone(), exprs[1..].to_vec()), tokiter),
                     },
                     // An analysis pass will find anything up with this
-                    _ => Ok((Some(Expr::List(exprs)), Some(tokiter))),
+                    _ => both!(Expr::List(exprs), tokiter),
                 };
             } else {
                 if let (rs, Some(ti)) = self.consume(tokiter)? {
@@ -234,32 +238,34 @@ impl Parser {
             }
         } // If we reach here, then we've run out of tokens before finding the
           // SexprEnd token.
-        Err(ParseError::UnexpectedEOF)
+        Err(UnexpectedEOF)
     }
 
-    fn consume_ident<'a, I>(
+    fn consume_bracket<'a, I>(
         &mut self,
-        ident: String,
         mut tokiter: Peekable<I>,
-        loc: &Loc,
+        start_loc: &Loc,
     ) -> ParseResult<I>
     where
         I: Iterator<Item = &'a Token>,
     {
-        Ok((None, Some(tokiter)))
-    }
-
-    fn consume_bracket<'a, I>(&mut self, mut tokiter: Peekable<I>) -> ParseResult<I>
-    where
-        I: Iterator<Item = &'a Token>,
-    {
-        Ok((None, Some(tokiter)))
-    }
-
-    fn consume_lit<'a, I>(&mut self, mut tokiter: Peekable<I>) -> ParseResult<I>
-    where
-        I: Iterator<Item = &'a Token>,
-    {
-        Ok((None, Some(tokiter)))
+        let mut exprs = vec![];
+        while let Some(next) = tokiter.peek() {
+            if let Token::BracketEnd(_) = next {
+                return both!(Vector(exprs), tokiter);
+            } else {
+                if let (rs, Some(ti)) = self.consume(tokiter)? {
+                    if let Some(expr) = rs {
+                        exprs.push(expr);
+                    }
+                    tokiter = ti;
+                } else {
+                    // TODO: include location information for EOF when we can
+                    return Err(UnexpectedEOF);
+                }
+            }
+        } // If we reach here, then we've run out of tokens before finding the
+          // SexprEnd token.
+        Err(UnexpectedEOF)
     }
 }
