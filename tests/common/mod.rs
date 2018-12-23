@@ -1,8 +1,6 @@
-#![macro_escape]
+#![macro_use]
 
 extern crate lispers;
-
-use lispers::tokenize::{Loc, Token, TokenizationError, Tokenizer};
 
 #[macro_export]
 macro_rules! token {

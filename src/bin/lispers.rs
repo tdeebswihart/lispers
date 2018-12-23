@@ -14,11 +14,12 @@ fn main() {
         Ok(a) => a,
         Err(e) => panic!(e),
     };
+    println!("tok:\n\n{:?}", toks);
     let mut parser = Parser::new();
     let ast = match parser.parse(toks.as_slice()) {
         Ok(a) => a,
         Err(e) => panic!("{}", e.to_string()),
     };
 
-    println!("{}", ast.to_string());
+    println!("ast:\n\n{:?}", ast);
 }

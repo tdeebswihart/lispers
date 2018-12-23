@@ -3,8 +3,8 @@
 /// `begin` and `end` define the raw character range.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Loc {
-    line: usize,
-    column: usize,
+    pub line: usize,
+    pub column: usize,
 }
 
 impl Loc {
@@ -49,9 +49,9 @@ pub enum TokenizationError {
     UnexpectedChar(char, Loc),
 }
 
-fn is_term_start_ok(chr: char) -> bool {
-    !chr.is_whitespace() || !"()[]{};!`|;\\".contains(chr)
-}
+// fn is_term_start_ok(chr: char) -> bool {
+//     !chr.is_whitespace() || !"()[]{};!`|;\\".contains(chr)
+// }
 
 fn is_term_ok(chr: char) -> bool {
     !(chr.is_whitespace() || chr.is_control() || "()[]{}".contains(chr))

@@ -1,8 +1,5 @@
-#![feature(slice_patterns)]
 use crate::tokenize::{Loc, Token};
-use std::io::{self, Write};
 use std::iter::Peekable;
-use std::str::FromStr;
 /// Allowable expressions for Lispy ulator
 /// variable reference -> variable name, whose value is the var's value
 /// constant literal   -> 12, -3.45e+6, etc
@@ -12,7 +9,7 @@ use std::str::FromStr;
 
 type Identifier = String;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Atom {
     /// Literals
     Integer(i64),
@@ -34,14 +31,10 @@ impl ToString for Atom {
     }
 }
 
-/// Bindings are of the form [ident expr ident2 expr2...]
-type Binding = (Identifier, Expr);
-
-/// A Form is a single variant of a lambda. Syntactically, they're written as ([Param*] Expr) pairs
 // ([p1 p2...] expr)
-type Form = (Vec<Identifier>, Expr);
+// type Form = (Vec<Identifier>, Expr);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Literal(Atom),
     // Let(Vec<Binding>, Vec<Expr>),
@@ -255,7 +248,7 @@ impl Parser {
     fn consume_bracket<'a, I>(
         &mut self,
         mut tokiter: Peekable<I>,
-        start_loc: &Loc,
+        _start_loc: &Loc,
     ) -> ParseResult<I>
     where
         I: Iterator<Item = &'a Token>,
