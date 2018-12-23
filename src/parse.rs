@@ -12,7 +12,7 @@ use std::str::FromStr;
 
 type Identifier = String;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Atom {
     /// Literals
     Integer(i64),
@@ -29,7 +29,7 @@ impl ToString for Atom {
             Atom::Float(f) => f.to_string(),
             Atom::Ident(i) => i.clone(),
             Atom::Str(s) => s.clone(),
-            Atom::Unit => "()",
+            Atom::Unit => "()".to_string(),
         }
     }
 }
@@ -38,17 +38,20 @@ impl ToString for Atom {
 type Binding = (Identifier, Expr);
 
 /// A Form is a single variant of a lambda. Syntactically, they're written as ([Param*] Expr) pairs
+// ([p1 p2...] expr)
 type Form = (Vec<Identifier>, Expr);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Expr {
     Literal(Atom),
     // Let(Vec<Binding>, Vec<Expr>),
     // Should Let be a macro? (let [bindings] exprs) ->
     // (do (def bind_ident1 bind_expr1))
     // Do(Vec<Expr>),
-    // TODO: any way to verify we have at least one form?
-    Lambda(Vec<Form>),
+    // TODO: Allow for multiple List(BracketExpr, Expr) entries
+    Lambda(Vec<Expr>),
+    BracketExpr(Vec<Identifier>),
+    Call(Identifier, Vec<Expr>),
     // If I want there to be multiple forms, then Def should take
     // pairs of (Vec<Binding>, Box<Expr>)
     // TODO: defn should be a macro that rewrites to (def ident lambda)
@@ -62,7 +65,28 @@ impl Expr {
     fn pprint(&self) {
         match self {
             Expr::Literal(a) => print!("{:?}", a),
-            Expr::Definition(ident, bndgs) => (println!("(def {:?} {:?})", ident, bndgs)),
+            Expr::Definition(ident, bndgs) => println!("(def {:?} {:?})", ident, bndgs),
+            Expr::Lambda(exprs) => {
+                print!("(fn ");
+                for expr in exprs.iter() {
+                    expr.pprint();
+                }
+                print!(")");
+            }
+            Expr::Call(i, exprs) => {
+                print!("(");
+                for expr in exprs.iter() {
+                    expr.pprint();
+                }
+                print!(")");
+            }
+            Expr::BracketExpr(idents) => {
+                print!("[");
+                for ident in idents.iter() {
+                    print!("{} ", ident);
+                }
+                print!("]");
+            }
             Expr::List(exprs) => {
                 print!("(");
                 for expr in exprs.iter() {
@@ -82,9 +106,9 @@ enum ParseError {
     UnexpectedEOF,
 }
 
-use Atom::*;
-use Expr::*;
-use ParseError::*;
+use self::Atom::*;
+use self::Expr::*;
+use self::ParseError::*;
 
 struct Parser {}
 
@@ -99,7 +123,7 @@ impl Parser {
     fn parse(&mut self, tokens: &[Token]) -> Result<Expr, ParseError> {
         use self::Expr::*;
         let mut exprs = vec![];
-        let tokiter = tokens.iter().peekable();
+        let mut tokiter = tokens.iter().peekable();
         loop {
             match self.consume(tokiter)? {
                 (rs, Some(ti)) => {
@@ -127,15 +151,15 @@ impl Parser {
             match token {
                 Token::SexprBegin(l) => self.consume_sexpr(tokiter, l),
                 // TODO
-                Token::SexprEnd(l) => Err(UnexpectedToken(token.clone())),
+                Token::SexprEnd(_l) => Err(UnexpectedToken(token.clone())),
                 // TODO
-                Token::Ident(s, l) => Err(UnexpectedToken(token.clone())),
+                Token::Ident(s, _l) => Ok((Some(Literal(Ident(s.clone()))), Some(tokiter))),
                 // TODO
-                Token::Literal(s, l) => Err(UnexpectedToken(token.clone())),
+                Token::Literal(s, _l) => Err(UnexpectedToken(token.clone())),
                 // TODO
-                Token::BracketBegin(l) => Err(UnexpectedToken(token.clone())),
+                Token::BracketBegin(_l) => Err(UnexpectedToken(token.clone())),
                 // TODO
-                Token::BracketEnd(l) => Err(UnexpectedToken(token.clone())),
+                Token::BracketEnd(_l) => Err(UnexpectedToken(token.clone())),
                 _ => Err(UnexpectedToken(token.clone())),
             }
         } else {
@@ -169,34 +193,30 @@ impl Parser {
                 return match exprs.first().unwrap() {
                     Expr::Literal(Atom::Ident(i)) => match i.as_str() {
                         "def" => match exprs.as_slice() {
-                            [_, Literal(Ident(i)), List(es)] => Ok((
-                                Some(Definition(i.clone(), Box::new(List(*es)))),
-                                Some(tokiter),
-                            )),
-                            [_, Literal(Ident(i)), Literal(l)] => Ok((
-                                Some(Definition(i.clone(), Box::new(Literal(*l)))),
-                                Some(tokiter),
-                            )),
+                            [_, Literal(Ident(i)), List(es)] => {
+                                Ok((Some(Definition(*i, Box::new(List(*es)))), Some(tokiter)))
+                            }
+                            [_, Literal(Ident(i)), Literal(l)] => {
+                                Ok((Some(Definition(*i, Box::new(Literal(*l)))), Some(tokiter)))
+                            }
                             _ => Err(SyntaxError(
                                 format!("Invalid `def` expression '{:?}'", exprs),
-                                start_loc.clone(),
+                                *start_loc,
                             )),
                         },
                         // Lambda definition
                         "fn" => match exprs.as_slice() {
-                            [_, Literal(Ident(i)), List(es)] => Ok((
-                                Some(Definition(i.clone(), Box::new(List(*es)))),
-                                Some(tokiter),
-                            )),
-                            [_, Literal(Ident(i)), Literal(l)] => Ok((
-                                Some(Definition(i.clone(), Box::new(Literal(*l)))),
+                            [_, BracketExpr(is), List(es)] => Ok((
+                                Some(Lambda(vec![BracketExpr(*is), List(*es)])),
                                 Some(tokiter),
                             )),
                             _ => Err(SyntaxError(
-                                format!("Invalid `def` expression '{:?}'", exprs),
-                                start_loc.clone(),
+                                format!("Invalid lambda `fn` expression '{:?}'", exprs),
+                                *start_loc,
                             )),
                         },
+                        // An analysis pass will ensure that the identifier is in scope and that the args are correct
+                        _ => Ok((Some(Call(*i, exprs[1..].to_vec())), Some(tokiter))),
                     },
                     // An analysis pass will find anything up with this
                     _ => Ok((Some(Expr::List(exprs)), Some(tokiter))),
@@ -217,14 +237,19 @@ impl Parser {
         Err(ParseError::UnexpectedEOF)
     }
 
-    fn consume_defn<'a, I>(&mut self, mut tokiter: Peekable<I>) -> ParseResult<I>
+    fn consume_ident<'a, I>(
+        &mut self,
+        ident: String,
+        mut tokiter: Peekable<I>,
+        loc: &Loc,
+    ) -> ParseResult<I>
     where
         I: Iterator<Item = &'a Token>,
     {
         Ok((None, Some(tokiter)))
     }
 
-    fn consume_lambda<'a, I>(&mut self, mut tokiter: Peekable<I>) -> ParseResult<I>
+    fn consume_bracket<'a, I>(&mut self, mut tokiter: Peekable<I>) -> ParseResult<I>
     where
         I: Iterator<Item = &'a Token>,
     {
