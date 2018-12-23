@@ -1,0 +1,78 @@
+
+* Things still to do...
+
+** Interpreter
+- [ ] Write one
+- [ ] Design environment struct. This should tie into the scoping constructs built during the analysis process
+- [ ] Design Function struct. Needs to know a) the params b) the function's body as an ast. When called, this will provide the function
+  with a temporary environment (it's scope + the arguments) to execute in
+
+  #+BEGIN_SRC rust
+use std::rc::Rc;
+
+/// Unsurprisingly this is rather similar to the scoping structure below.
+/// It could probably be abused or reused for this interpreter
+struct Environment {
+    bindings: HashMap<Identifier, Rc<Expr>>,
+    parent_env: Option<Rc<Environment>>,
+}
+  #+END_SRC
+
+** Analysis
+
+- [ ] implement analysis framework. Need to identify the spec of this: they should be ast -> ast transformers
+- [ ] Construct function specs based on their arity (eventually the goal would be to type-check arguments as well)
+- [ ] Check that function calls are valid
+- [ ] Design as struct to track expression scope
+- [ ] Verify that all identifier references are valid (e.g. they only reference things valid that exist in their scope)
+  - Scopes should be a linked list pointing upwards or something. Check current scope, check if its in the scope above, etc. all the
+    way up to the root
+  - Maybe something like the following
+
+#+BEGIN_SRC rust
+use std::rc::Rc;
+
+struct Scope {
+    definitions: HashMap<Identifier, Expr>,
+    parent_scope: Option<Rc<Scope>>,
+}
+
+impl Scope {
+    fn new() -> Self {
+        Scope {
+            definitions: HashMap::new(),
+            parent_scope: None,
+        }
+    }
+
+    fn with_parent(parent: Rc<Scope>) -> Self {
+        Scope {
+            definitions: HashMap::new(),
+            parent_scope: Some(parent),
+        }
+    }
+
+    fn add(&mut self, identifier: Identifier, expr: Expr) {
+        self.definitions.insert(identifier, expr)
+    jj}
+
+    fn access(&self, identifier: Identifier) -> Option<Expr> {
+        self.definitions
+            .get(identifier)
+            .or_else(|| self.parent.map_or(|p| p.get(identifier), None))
+    }
+
+    fn contains(&self, ident: &Identifier) -> bool {
+        match self.definitions.contains_key(ident) {
+            true => true,
+            false => {
+                if let Some(parent) = self.parent_scope {
+                    parent.contains(ident)
+                } else {
+                    false
+                }
+            }
+        }
+    }
+}
+#+END_SRC
