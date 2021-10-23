@@ -20,6 +20,10 @@ pub enum Error {
     BadValue { expr: String },
     #[snafu(display("op failed: {}", inner))]
     OpError { inner: op::Error },
+    #[snafu(display("type error: `{}` is not defined on [{}]", op, types.join(" ")))]
+    BadType { op: String, types: Vec<String> },
+    #[snafu(display("`{}` expected a value for arg {}, not `nil`", op, index))]
+    ValueExpected { op: String, index: usize },
 }
 
 impl From<op::Error> for Error {
@@ -51,6 +55,21 @@ impl TryFrom<Expr> for Value {
     }
 }
 
+impl TryFrom<Box<Expr>> for Value {
+    type Error = Error;
+
+    fn try_from(expr: Box<Expr>) -> Result<Self, Self::Error> {
+        use Expr::*;
+        match *expr {
+            Literal(a) => Ok(Value::Literal(a)),
+            Lambda(bindings, body) => Ok(Value::Fn(bindings, *body)),
+            _ => Err(Error::BadValue {
+                expr: expr.to_string(),
+            }),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Scope {
     /// Binding from name -> expression
@@ -58,35 +77,41 @@ struct Scope {
 }
 
 impl Scope {
-    fn new() -> Scope {
+    pub fn new() -> Scope {
         Scope {
             bindings: HashMap::new(),
         }
     }
 
-    fn resolve(&self, ident: &String) -> Option<&Value> {
+    pub fn resolve(&self, ident: &String) -> Option<&Value> {
         self.bindings.get(ident)
     }
 
-    fn bind(&mut self, ident: String, v: Value) {
+    pub fn bind(&mut self, ident: String, v: Value) {
         self.bindings.insert(ident, v);
     }
 }
 
 #[derive(Debug)]
-struct VM {
+pub struct VM {
     // Stack of scopes. The tail is the most recent scope
     scopes: std::vec::Vec<Scope>,
 }
 
+macro_rules! unit {
+    () => {
+        Expr::Literal(Atom::Unit)
+    };
+}
+
 impl VM {
-    fn new() -> VM {
+    pub fn new() -> VM {
         VM {
             scopes: vec![Scope::new()],
         }
     }
 
-    fn interpret(&mut self, exprs: Vec<Expr>) -> Result<()> {
+    pub fn interpret(&mut self, exprs: Vec<Expr>) -> Result<()> {
         for expr in exprs {
             self.interpret_expr(&expr)?;
         }
@@ -105,38 +130,33 @@ impl VM {
     }
 
     fn bind(&mut self, ident: String, v: Value) {
-        self.scopes.last().expect("expected a scope").bind(ident, v);
-    }
-
-    fn push_scope(&mut self) {
-        self.scopes.push(Scope::new());
-    }
-
-    fn pop_scope(&mut self) {
-        self.scopes.pop();
+        self.scopes
+            .last_mut()
+            .expect("expected a scope")
+            .bind(ident, v);
     }
 
     fn apply(
         &mut self,
-        ident: String,
+        ident: &String,
         bindings: Vec<Binding>,
-        args: Vec<Expr>,
-        body: &Expr,
-    ) -> Result<Option<Expr>> {
+        args: &Vec<Expr>,
+        body: Expr,
+    ) -> Result<Expr> {
         if args.len() != bindings.len() {
             return Err(Error::BadArity {
-                ident,
+                ident: ident.to_string(),
                 expected: bindings.len(),
                 received: args.len(),
             });
         }
-        self.push_scope();
-        for (name, val) in bindings.iter().zip(args.iter()) {
-            self.bind(name.clone(), Value::try_from(val.clone())?);
+        let mut call_scope = Scope::new();
+        for (name, val) in bindings.into_iter().zip(args.iter()) {
+            call_scope.bind(name, Value::try_from(val.clone())?);
         }
-        let result = self.interpret_expr(body)?;
-        self.pop_scope();
-
+        self.scopes.push(call_scope);
+        let result = self.interpret_expr(&body)?;
+        self.scopes.pop();
         Ok(result)
     }
 
@@ -147,40 +167,76 @@ impl VM {
         }
     }
 
-    fn apply_native(&mut self, ident: &str, args: Vec<Expr>) -> Result<()> {
+    fn apply_native(&mut self, ident: &str, args: &Vec<Expr>) -> Result<Expr> {
         match ident {
+            "print" => {
+                let mut finalized = std::vec::Vec::with_capacity(args.len());
+                for arg in args {
+                    let expr = self.interpret_expr(arg)?;
+                    if let Expr::Literal(a) = expr {
+                        finalized.push(a);
+                    } else {
+                        return Err(Error::BadType {
+                            op: ident.to_string(),
+                            types: vec![expr.to_string()],
+                        });
+                    }
+                }
+                op::print(&finalized);
+                Ok(unit!())
+            }
             "+" => {
                 if args.len() != 2 {
                     return Err(Error::BadArity {
-                        ident: "+".to_string(),
+                        ident: ident.to_string(),
                         expected: 2,
                         received: args.len(),
                     });
                 }
-                Ok(Expr::Literal(op::add(args[1], args[2])?))
+                let a = self.interpret_expr(&args[0])?;
+                let b = self.interpret_expr(&args[1])?;
+                match (a, b) {
+                    (unit!(), _) => Err(Error::ValueExpected {
+                        op: ident.to_string(),
+                        index: 0,
+                    }),
+                    (_, unit!()) => Err(Error::ValueExpected {
+                        op: ident.to_string(),
+                        index: 1,
+                    }),
+                    (Expr::Literal(va), Expr::Literal(vb)) => Ok(Expr::Literal(op::add(va, vb)?)),
+                    (a, b) => Err(Error::BadType {
+                        op: ident.to_string(),
+                        types: vec![a.to_string(), b.to_string()],
+                    }),
+                }
             }
+            _ => Err(Error::Unbound {
+                name: ident.to_string(),
+            }),
         }
     }
 
-    fn interpret_expr(&mut self, expr: &Expr) -> Result<Option<Expr>> {
+    fn interpret_expr(&mut self, expr: &Expr) -> Result<Expr> {
         use Expr::*;
         match expr {
             Call(ident, args) => {
                 if self.is_native(ident) {
-                    return self.apply_native(&ident, args.clone());
+                    return self.apply_native(&ident, args);
                 }
-                match self.resolve(ident)? {
+                let res = self.resolve(ident)?.clone();
+                match res {
                     Value::Literal(l) => Err(Error::Uncallable {
                         what: l.to_string(),
                     }),
-                    Value::Fn(bindings, body) => self.apply(bindings, args, body),
+                    Value::Fn(bindings, body) => self.apply(ident, bindings, args, body),
                 }
             }
             Definition(ident, body) => {
-                self.bind(ident.clone(), Value::try_from(body.into())?);
-                Ok(None)
+                self.bind(ident.clone(), Value::try_from(body.clone())?);
+                Ok(unit!())
             }
-            _ => Ok(None),
+            _ => Ok(expr.clone()),
         }
     }
 }

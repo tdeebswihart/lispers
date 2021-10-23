@@ -1,5 +1,5 @@
 use crate::parse::{Atom, Expr};
-use snafu::{ResultExt, Snafu};
+use snafu::Snafu;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -13,9 +13,16 @@ pub fn add(a: Atom, b: Atom) -> Result<Atom> {
     match (a, b) {
         (Integer(ai), Integer(bi)) => Ok(Integer(ai + bi)),
         (Float(af), Float(bf)) => Ok(Float(af + bf)),
-        _ => Err(Error::TypeError {
+        (a, b) => Err(Error::TypeError {
             op: "+".to_string(),
             values: vec![a.to_string(), b.to_string()],
         }),
     }
+}
+
+pub fn print(args: &Vec<Atom>) {
+    for arg in args {
+        print!("{}", arg);
+    }
+    print!("\n");
 }

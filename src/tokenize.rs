@@ -1,3 +1,4 @@
+use snafu::Snafu;
 /// `Loc`s define code locations. They are `Token`s that exist
 /// in the (non-inclusive) range `[lbegin, lend)` on line `line`.
 /// `begin` and `end` define the raw character range.
@@ -43,10 +44,12 @@ pub enum Token {
 }
 use self::Token::*;
 
-#[derive(Debug)]
-pub enum TokenizationError {
-    UnexpectedEOF(Loc),
-    UnexpectedChar(char, Loc),
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("unexpected EOF at {}", loc.to_string()))]
+    UnexpectedEOF { loc: Loc },
+    #[snafu(display("unexpected character {} at {}", chr, loc.to_string()))]
+    UnexpectedChar { chr: char, loc: Loc },
 }
 
 // fn is_term_start_ok(chr: char) -> bool {
@@ -74,7 +77,7 @@ pub struct Tokenizer {
     partial: Vec<char>,
 }
 
-type TokenizeResult = Result<Option<Token>, TokenizationError>;
+type Result<T = Option<Token>, E = Error> = std::result::Result<T, E>;
 
 impl Tokenizer {
     pub fn new() -> Tokenizer {
@@ -106,7 +109,7 @@ impl Tokenizer {
     }
 
     /// TODO: document this atrocity
-    pub fn tokenize(&mut self, source: &str) -> Result<Vec<Token>, TokenizationError> {
+    pub fn tokenize(&mut self, source: &str) -> Result<Vec<Token>, Error> {
         let mut toks = vec![];
         let mut chars = source.chars().peekable();
         loop {
@@ -146,7 +149,7 @@ impl Tokenizer {
     }
 
     /// Consume a single token of input
-    fn consume(&mut self, chr: char) -> TokenizeResult {
+    fn consume(&mut self, chr: char) -> Result {
         self.loc = Loc::new(self.line, self.column);
         if chr == '\n' {
             self.line += 1;
@@ -166,7 +169,7 @@ impl Tokenizer {
                 self.consume_normal(chr)
             }
         } else {
-            Err(TokenizationError::UnexpectedChar(chr, self.loc))
+            Err(Error::UnexpectedChar { chr, loc: self.loc })
         }
     }
 
@@ -207,7 +210,7 @@ impl Tokenizer {
     }
 
     /// TODO: document
-    fn consume_string(&mut self, chr: char) -> TokenizeResult {
+    fn consume_string(&mut self, chr: char) -> Result {
         self.partial.push(chr);
         if chr == '"' {
             if let Some(prev) = self.partial.last() {
@@ -224,12 +227,12 @@ impl Tokenizer {
     }
 
     /// TODO: implement parsing of quoted sexprs
-    fn consume_quote(&mut self, chr: char) -> TokenizeResult {
+    fn consume_quote(&mut self, chr: char) -> Result {
         // todo
-        Err(TokenizationError::UnexpectedEOF(self.loc))
+        unimplemented!("quoting not yet implemented");
     }
 
-    fn consume_comment(&mut self, chr: char) -> TokenizeResult {
+    fn consume_comment(&mut self, chr: char) -> Result {
         if chr == '\n' {
             self.commented = false;
         }
@@ -237,7 +240,7 @@ impl Tokenizer {
     }
 
     /// TODO: Document
-    fn consume_normal(&mut self, chr: char) -> TokenizeResult {
+    fn consume_normal(&mut self, chr: char) -> Result {
         // TODO: by returning early we lose `chr`
         if chr.is_whitespace() {
             return Ok(None);

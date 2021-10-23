@@ -1,4 +1,6 @@
 use crate::tokenize::{Loc, Token};
+use snafu::Snafu;
+use std::fmt;
 use std::iter::Peekable;
 /// Allowable expressions for Lispy ulator
 /// variable reference -> variable name, whose value is the var's value
@@ -20,14 +22,15 @@ pub enum Atom {
     Ident(Identifier),
 }
 
-impl ToString for Atom {
-    fn to_string(&self) -> String {
+impl fmt::Display for Atom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Atom::*;
         match self {
-            Atom::Integer(i) => i.to_string(),
-            Atom::Float(f) => f.to_string(),
-            Atom::Ident(i) => i.clone(),
-            Atom::Str(s) => s.clone(),
-            Atom::Unit => "()".to_string(),
+            Unit => write!(f, "()"),
+            Integer(i) => write!(f, "{}", i),
+            Float(i) => write!(f, "{}", i),
+            Str(s) => write!(f, "{}", s),
+            Ident(i) => write!(f, "{}", i),
         }
     }
 }
@@ -90,33 +93,24 @@ impl ToString for Expr {
     }
 }
 
-#[derive(Debug)]
-pub enum ParseError {
-    SyntaxError(String, Loc),
-    InvalidBinding(Expr),
-    UnexpectedToken(Token),
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("syntax error: {} @ {}", err, loc.to_string()))]
+    SyntaxError { err: String, loc: Loc },
+    #[snafu(display("unexpected token {:?}", tok))]
+    UnexpectedToken { tok: Token },
+    #[snafu(display("{:?} is not a valid binding", val.to_string()))]
+    InvalidBinding { val: Expr },
+    #[snafu(display("unexpected eof"))]
     UnexpectedEOF,
-}
-
-impl ToString for ParseError {
-    fn to_string(&self) -> String {
-        use self::ParseError::*;
-        match self {
-            SyntaxError(s, l) => format!("Syntax Error: {} @ {}", s, l.to_string()),
-            UnexpectedToken(tok) => format!("Unexpected token {:?}", tok),
-            UnexpectedEOF => format!("Unexpected EOF!"),
-            InvalidBinding(expr) => format!("Invalid binding: {}", expr.to_string()),
-        }
-    }
 }
 
 use self::Atom::*;
 use self::Expr::*;
-use self::ParseError::*;
 
 pub struct Parser {}
 
-type ParseResult<I> = Result<(Option<Expr>, Option<Peekable<I>>), ParseError>;
+type Result<I, E = Error> = std::result::Result<(Option<Expr>, Option<Peekable<I>>), E>;
 
 // I'm lazy so use macros to simplify specifying return values
 macro_rules! both {
@@ -130,7 +124,7 @@ impl Parser {
         Parser {}
     }
 
-    pub fn parse(&mut self, tokens: &[Token]) -> Result<Vec<Expr>, ParseError> {
+    pub fn parse(&mut self, tokens: &[Token]) -> std::result::Result<Vec<Expr>, Error> {
         let mut exprs = vec![];
         let mut tokiter = tokens.into_iter().peekable();
         loop {
@@ -152,14 +146,13 @@ impl Parser {
         Ok(exprs)
     }
 
-    fn consume<'a, I>(&mut self, mut tokiter: Peekable<I>) -> ParseResult<I>
+    fn consume<'a, I>(&mut self, mut tokiter: Peekable<I>) -> Result<I>
     where
         I: Iterator<Item = &'a Token>,
     {
         if let Some(token) = tokiter.next() {
             match token {
                 Token::SexprBegin(l) => self.consume_sexpr(tokiter, l),
-                Token::SexprEnd(_l) => Err(UnexpectedToken(token.clone())),
                 Token::Ident(s, _l) => both!(Literal(Ident(s.clone())), tokiter),
                 Token::Literal(s, _l) => {
                     let atom = match s.parse::<i64>() {
@@ -172,8 +165,7 @@ impl Parser {
                     both!(Literal(atom), tokiter)
                 }
                 Token::BracketBegin(l) => self.consume_bracket(tokiter, l),
-                Token::BracketEnd(_l) => Err(UnexpectedToken(token.clone())),
-                _ => Err(UnexpectedToken(token.clone())),
+                _ => Err(Error::UnexpectedToken { tok: token.clone() }),
             }
         } else {
             // No remaining tokens. This is only spot where this is fine
@@ -182,7 +174,7 @@ impl Parser {
     }
 
     /// Consume some amount of a token iterator in an attempt to build the contents of a s-expression
-    fn consume_sexpr<'a, I>(&mut self, mut tokiter: Peekable<I>, start_loc: &Loc) -> ParseResult<I>
+    fn consume_sexpr<'a, I>(&mut self, mut tokiter: Peekable<I>, start_loc: &Loc) -> Result<I>
     where
         I: Iterator<Item = &'a Token>,
     {
@@ -203,20 +195,20 @@ impl Parser {
                             [_, Literal(Ident(i)), ex] => {
                                 both!(Definition(i.clone(), Box::new(ex.clone())), tokiter)
                             }
-                            _ => Err(SyntaxError(
-                                format!("Invalid `def` expression '{:?}'", exprs),
-                                *start_loc,
-                            )),
+                            _ => Err(Error::SyntaxError {
+                                err: format!("Invalid `def` expression '{:?}'", exprs),
+                                loc: *start_loc,
+                            }),
                         },
                         // Lambda definition. (fn $params $expr)
                         "fn" => match exprs.as_slice() {
                             [_, Vector(bindings), body] => {
                                 both!(Lambda(bindings.clone(), Box::new(body.clone())), tokiter)
                             }
-                            _ => Err(SyntaxError(
-                                format!("Invalid lambda (fn...) expression '{:?}'", exprs),
-                                *start_loc,
-                            )),
+                            _ => Err(Error::SyntaxError {
+                                err: format!("Invalid lambda (fn...) expression '{:?}'", exprs),
+                                loc: *start_loc,
+                            }),
                         },
                         // An analysis pass will ensure that the identifier is in scope and that the args are correct
                         _ => both!(Call(i.clone(), exprs[1..].to_vec()), tokiter),
@@ -232,19 +224,15 @@ impl Parser {
                     tokiter = ti;
                 } else {
                     // TODO: include location information for EOF when we can
-                    return Err(UnexpectedEOF);
+                    return Err(Error::UnexpectedEOF);
                 }
             }
         } // If we reach here, then we've run out of tokens before finding the
           // SexprEnd token.
-        Err(UnexpectedEOF)
+        Err(Error::UnexpectedEOF)
     }
 
-    fn consume_bracket<'a, I>(
-        &mut self,
-        mut tokiter: Peekable<I>,
-        _start_loc: &Loc,
-    ) -> ParseResult<I>
+    fn consume_bracket<'a, I>(&mut self, mut tokiter: Peekable<I>, _start_loc: &Loc) -> Result<I>
     where
         I: Iterator<Item = &'a Token>,
     {
@@ -258,16 +246,17 @@ impl Parser {
                 match self.consume(tokiter)? {
                     (Some(Literal(Ident(binding))), Some(ti)) => {
                         bindings.push(binding);
+                        tokiter = ti;
                     }
-                    (Some(expr), Some(ti)) => return Err(ParseError::InvalidBinding(expr)),
+                    (Some(expr), Some(_ti)) => return Err(Error::InvalidBinding { val: expr }),
                     (None, Some(ti)) => {
                         tokiter = ti;
                     }
-                    (_, None) => return Err(ParseError::UnexpectedEOF),
+                    (_, None) => return Err(Error::UnexpectedEOF),
                 }
             }
         } // If we reach here, then we've run out of tokens before finding the
           // SexprEnd token.
-        Err(UnexpectedEOF)
+        Err(Error::UnexpectedEOF)
     }
 }
