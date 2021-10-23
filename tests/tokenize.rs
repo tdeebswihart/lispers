@@ -1,5 +1,5 @@
 pub mod common;
-use lispers::tokenize::{Loc, Token, TokenizationError, Tokenizer};
+use lispers::tokenize::{Error, Loc, Token, Tokenizer};
 
 #[test]
 fn test_basic_consume() {
@@ -63,7 +63,7 @@ fn test_unexpected_char() {
     let source = "(+ 1 (* 3 4)))";
     let err = Tokenizer::new().tokenize(source).err().unwrap();
     match err {
-        TokenizationError::UnexpectedChar(c, l) => {
+        Error::UnexpectedChar(c, l) => {
             assert_eq!(c, ')');
             assert_eq!(l, Loc::new(0, 13));
         }

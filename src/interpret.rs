@@ -1,5 +1,5 @@
 use crate::op;
-use crate::parse::{Atom, Binding, Expr};
+use crate::parse::{Atom, Binding, Expr, Identifier};
 use snafu::{ResultExt, Snafu};
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -37,7 +37,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(Debug, Clone)]
 enum Value {
     Literal(Atom),
-    Fn(Vec<Binding>, Expr),
+    Fn(Vec<Binding>, Box<Expr>),
 }
 
 impl TryFrom<Expr> for Value {
@@ -47,7 +47,7 @@ impl TryFrom<Expr> for Value {
         use Expr::*;
         match expr {
             Literal(a) => Ok(Value::Literal(a)),
-            Lambda(bindings, body) => Ok(Value::Fn(bindings, *body)),
+            Lambda(bindings, body) => Ok(Value::Fn(bindings, body)),
             _ => Err(Error::BadValue {
                 expr: expr.to_string(),
             }),
@@ -62,10 +62,19 @@ impl TryFrom<Box<Expr>> for Value {
         use Expr::*;
         match *expr {
             Literal(a) => Ok(Value::Literal(a)),
-            Lambda(bindings, body) => Ok(Value::Fn(bindings, *body)),
+            Lambda(bindings, body) => Ok(Value::Fn(bindings, body)),
             _ => Err(Error::BadValue {
                 expr: expr.to_string(),
             }),
+        }
+    }
+}
+
+impl Into<Expr> for Value {
+    fn into(self) -> Expr {
+        match self {
+            Value::Literal(a) => Expr::Literal(a),
+            Value::Fn(bindings, body) => Expr::Lambda(bindings, body),
         }
     }
 }
@@ -88,6 +97,7 @@ impl Scope {
     }
 
     pub fn bind(&mut self, ident: String, v: Value) {
+        trace!("binding {:?} to {}", v, ident);
         self.bindings.insert(ident, v);
     }
 }
@@ -141,7 +151,7 @@ impl VM {
         ident: &String,
         bindings: Vec<Binding>,
         args: &Vec<Expr>,
-        body: Expr,
+        body: Box<Expr>,
     ) -> Result<Expr> {
         if args.len() != bindings.len() {
             return Err(Error::BadArity {
@@ -220,6 +230,7 @@ impl VM {
     fn interpret_expr(&mut self, expr: &Expr) -> Result<Expr> {
         use Expr::*;
         match expr {
+            Literal(Atom::Ident(ident)) => Ok(self.resolve(ident)?.clone().into()),
             Call(ident, args) => {
                 if self.is_native(ident) {
                     return self.apply_native(&ident, args);

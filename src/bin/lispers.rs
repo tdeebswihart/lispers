@@ -1,6 +1,6 @@
 extern crate lispers;
 use anyhow::Result;
-
+use env_logger::Env;
 use std::{env, process};
 
 use lispers::interpret::VM;
@@ -29,6 +29,11 @@ fn run() -> Result<()> {
 }
 
 fn main() {
+    let env = Env::default()
+        .filter_or("LISPERS_LOG_LEVEL", "info")
+        .write_style_or("LISPERS_LOG_STYLE", "always");
+
+    env_logger::init_from_env(env);
     if env::args().len() < 2 {
         eprintln!("Usage: lispers PROGRAM");
         process::exit(1);
