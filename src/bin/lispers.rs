@@ -1,25 +1,29 @@
 extern crate lispers;
+use anyhow::Result;
 
 use std::{env, process};
 
 use lispers::parse::Parser;
 use lispers::tokenize::Tokenizer;
+
+fn run() -> Result {
+    let program = env::args().nth(1).unwrap();
+    let toks = Tokenizer::new().tokenize(&program)?;
+    println!("tok:\n\n{:?}", toks);
+    let mut parser = Parser::new();
+    let ast = parser.parse(toks.as_slice())?;
+
+    println!("ast:\n\n{:?}", ast);
+}
+
 fn main() {
     if env::args().len() < 2 {
         eprintln!("Usage: lispers PROGRAM");
         process::exit(1);
     }
-    let program = env::args().nth(1).unwrap();
-    let toks = match Tokenizer::new().tokenize(&program) {
-        Ok(a) => a,
-        Err(e) => panic!(e),
-    };
-    println!("tok:\n\n{:?}", toks);
-    let mut parser = Parser::new();
-    let ast = match parser.parse(toks.as_slice()) {
-        Ok(a) => a,
-        Err(e) => panic!("{}", e.to_string()),
-    };
 
-    println!("ast:\n\n{:?}", ast);
+    if let Err(e) = run() {
+        eprintln!("error: {:?}", e);
+        process::exit(1);
+    }
 }

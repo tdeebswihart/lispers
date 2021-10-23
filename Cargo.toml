@@ -1,10 +1,12 @@
 [package]
 name = "lispers"
 version = "0.1.0"
-authors = ["Tim Deeb-Swihart <chronon@me.com>"]
+authors = ["Tim Deeb-Swihart <tim@deebswih.art>"]
 edition = "2018"
 
 [dependencies]
+snafu = "0.6.10"
+anyhow = "1.0.38"
 
 
 [[bin]]

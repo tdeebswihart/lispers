@@ -7,7 +7,8 @@ use std::iter::Peekable;
 /// definition         -> (define symbol expression)
 /// procedure call     -> (prog arg...)
 
-type Identifier = String;
+pub type Identifier = String;
+pub type Binding = String;
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Atom {
@@ -42,8 +43,8 @@ pub enum Expr {
     // (do (def bind_ident1 bind_expr1))
     // Do(Vec<Expr>),
     // TODO: Allow for multiple List(Bracket, Expr) entries
-    Lambda(Vec<Expr>),
-    Vector(Vec<Expr>),
+    Lambda(Vec<Binding>, Box<Expr>),
+    Vector(Vec<Binding>),
     Call(Identifier, Vec<Expr>),
     // If I want there to be multiple forms, then Def should take
     // pairs of (Vec<Binding>, Box<Expr>)
@@ -58,14 +59,7 @@ impl ToString for Expr {
     fn to_string(&self) -> String {
         match self {
             Literal(a) => a.to_string(),
-            Lambda(exprs) => format!(
-                "(fn {})",
-                exprs
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<String>>()
-                    .join(" ")
-            ),
+            Lambda(bindings, body) => format!("(fn [{}] {})", bindings.join(" "), body.to_string()),
             Vector(exprs) => format!(
                 "[{}]",
                 exprs
@@ -99,6 +93,7 @@ impl ToString for Expr {
 #[derive(Debug)]
 pub enum ParseError {
     SyntaxError(String, Loc),
+    InvalidBinding(Expr),
     UnexpectedToken(Token),
     UnexpectedEOF,
 }
@@ -110,6 +105,7 @@ impl ToString for ParseError {
             SyntaxError(s, l) => format!("Syntax Error: {} @ {}", s, l.to_string()),
             UnexpectedToken(tok) => format!("Unexpected token {:?}", tok),
             UnexpectedEOF => format!("Unexpected EOF!"),
+            InvalidBinding(expr) => format!("Invalid binding: {}", expr.to_string()),
         }
     }
 }
@@ -134,8 +130,7 @@ impl Parser {
         Parser {}
     }
 
-    pub fn parse(&mut self, tokens: &[Token]) -> Result<Expr, ParseError> {
-        use self::Expr::*;
+    pub fn parse(&mut self, tokens: &[Token]) -> Result<Vec<Expr>, ParseError> {
         let mut exprs = vec![];
         let mut tokiter = tokens.into_iter().peekable();
         loop {
@@ -154,7 +149,7 @@ impl Parser {
                 }
             }
         }
-        Ok(List(exprs))
+        Ok(exprs)
     }
 
     fn consume<'a, I>(&mut self, mut tokiter: Peekable<I>) -> ParseResult<I>
@@ -215,8 +210,8 @@ impl Parser {
                         },
                         // Lambda definition. (fn $params $expr)
                         "fn" => match exprs.as_slice() {
-                            [_, Vector(is), ex] => {
-                                both!(Lambda(vec![Vector(is.clone()), ex.clone()]), tokiter)
+                            [_, Vector(bindings), body] => {
+                                both!(Lambda(bindings.clone(), Box::new(body.clone())), tokiter)
                             }
                             _ => Err(SyntaxError(
                                 format!("Invalid lambda (fn...) expression '{:?}'", exprs),
@@ -253,21 +248,22 @@ impl Parser {
     where
         I: Iterator<Item = &'a Token>,
     {
-        let mut exprs = vec![];
+        let mut bindings = vec![];
         while let Some(next) = tokiter.peek() {
             if let Token::BracketEnd(_) = next {
                 // Punch through
                 let _ = tokiter.next();
-                return both!(Vector(exprs), tokiter);
+                return both!(Vector(bindings), tokiter);
             } else {
-                if let (rs, Some(ti)) = self.consume(tokiter)? {
-                    if let Some(expr) = rs {
-                        exprs.push(expr);
+                match self.consume(tokiter)? {
+                    (Some(Literal(Ident(binding))), Some(ti)) => {
+                        bindings.push(binding);
                     }
-                    tokiter = ti;
-                } else {
-                    // TODO: include location information for EOF when we can
-                    return Err(UnexpectedEOF);
+                    (Some(expr), Some(ti)) => return Err(ParseError::InvalidBinding(expr)),
+                    (None, Some(ti)) => {
+                        tokiter = ti;
+                    }
+                    (_, None) => return Err(ParseError::UnexpectedEOF),
                 }
             }
         } // If we reach here, then we've run out of tokens before finding the
