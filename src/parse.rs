@@ -159,7 +159,7 @@ impl Parser {
                         Ok(i) => Integer(i),
                         Err(_) => match s.parse::<f32>() {
                             Ok(f) => Float(f),
-                            Err(_) => Str(s.clone()),
+                            Err(_) => Str(s.trim_matches('"').to_string()),
                         },
                     };
                     both!(Literal(atom), tokiter)

@@ -95,16 +95,21 @@ impl Tokenizer {
     }
 
     fn accept(&self, chr: char) -> bool {
-        if chr.is_control() {
-            return false;
-        }
         if self.in_string {
             return true;
         }
         match chr {
             ')' => self.sexpr_depth > 0 || self.quote_depth > 0,
             ']' => self.bracket_depth > 0,
-            _ => true,
+            _ => {
+                if chr.is_whitespace() {
+                    return true;
+                }
+                if chr.is_control() {
+                    return false;
+                }
+                return true;
+            }
         }
     }
 
@@ -201,6 +206,8 @@ impl Tokenizer {
         if let Some(c) = self.partial.first() {
             if c.is_numeric() || c == &'"' {
                 self.emit_literal(self.loc)
+            } else if c.is_whitespace() {
+                None
             } else {
                 self.emit_ident(self.loc)
             }
@@ -227,7 +234,7 @@ impl Tokenizer {
     }
 
     /// TODO: implement parsing of quoted sexprs
-    fn consume_quote(&mut self, chr: char) -> Result {
+    fn consume_quote(&mut self, _chr: char) -> Result {
         // todo
         unimplemented!("quoting not yet implemented");
     }

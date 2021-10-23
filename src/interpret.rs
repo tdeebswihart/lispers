@@ -1,6 +1,6 @@
 use crate::op;
-use crate::parse::{Atom, Binding, Expr, Identifier};
-use snafu::{ResultExt, Snafu};
+use crate::parse::{Atom, Binding, Expr};
+use snafu::Snafu;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
@@ -229,6 +229,7 @@ impl VM {
 
     fn interpret_expr(&mut self, expr: &Expr) -> Result<Expr> {
         use Expr::*;
+        trace!("interpreting {:?}", expr);
         match expr {
             Literal(Atom::Ident(ident)) => Ok(self.resolve(ident)?.clone().into()),
             Call(ident, args) => {

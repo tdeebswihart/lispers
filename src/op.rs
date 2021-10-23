@@ -1,4 +1,4 @@
-use crate::parse::{Atom, Expr};
+use crate::parse::Atom;
 use snafu::Snafu;
 
 #[derive(Debug, Snafu)]
@@ -21,8 +21,14 @@ pub fn add(a: Atom, b: Atom) -> Result<Atom> {
 }
 
 pub fn print(args: &Vec<Atom>) {
+    let mut first = true;
     for arg in args {
-        print!("{}", arg);
+        if first {
+            print!("{}", arg);
+            first = false;
+        } else {
+            print!(" {}", arg);
+        }
     }
     print!("\n");
 }
